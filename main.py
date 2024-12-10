@@ -37,7 +37,10 @@ def get_agenda() -> str:
     # get_agenda_command =  ("(progn  (setq org-agenda-custom-commands  '((\"d\" \"Daily agenda and all TODOs\"  ((agenda \"\" ((org-agenda-span 1)))))))  (org-batch-agenda \"d\"))"
     #                        )
 
-    emacs_agenda = '(org-batch-agenda "a")' 
+    emacs_agenda = '(progn \
+    (require \'org-agenda) \
+    (let ((org-agenda-span \'day)) \
+    (org-batch-agenda "a")))'
 
     output = subprocess.run(
         ["emacs", "-batch", "-l" ,"~/.emacs.d/init.el", "-eval", emacs_agenda], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
@@ -56,8 +59,7 @@ def parse_agenda() -> str:
         print(e)
         sys.exit(-1)
 
-    print(agenda)
-    agenda = agenda[:agenda.find("(")]
+    agenda = agenda.splitlines()
     print(agenda)
 
 
