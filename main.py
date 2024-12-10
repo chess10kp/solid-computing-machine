@@ -60,7 +60,9 @@ def parse_agenda() -> str:
         sys.exit(-1)
 
     agenda = agenda.splitlines()
-    print(agenda)
+    todos = filter(lambda x: "todo" in x, agenda)
+    todos = list(map(lambda x: x[x.find(":")+1:].strip(), todos))
+    return todos
 
 
 class Dashboard(Gtk.ApplicationWindow):
@@ -98,7 +100,6 @@ def on_activate(app):
 app = Gtk.Application(application_id="com.example")
 app.connect("activate", on_activate)
 
-# app.run(None)
-parse_agenda()
+app.run(None)
 
 sys.exit(0)
