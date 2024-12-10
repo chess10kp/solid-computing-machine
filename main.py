@@ -32,21 +32,18 @@ def is_running(process_name: str) -> bool:
     except subprocess.CalledProcessError:
         return False
 
-def get_agenda():
+def get_agenda() -> str:
     """Gets the agenda for today, then closes the agenda buffer"""
-    get_agenda_command =  (
-        "(progn"
-        "(setq org-agenda-custom-commands"
-        "'((\"d\" \"Daily agenda and all TODOs\""
-        "((agenda \"\" ((org-agenda-span 1)))))))"
-        "(org-batch-agenda \"d\"))"
-    )
+    # get_agenda_command =  ("(progn  (setq org-agenda-custom-commands  '((\"d\" \"Daily agenda and all TODOs\"  ((agenda \"\" ((org-agenda-span 1)))))))  (org-batch-agenda \"d\"))"
+    #                        )
 
-    agenda = subprocess.run(
-        ["emacs", "-batch", "-eval", get_agenda_command], capture_output=True, text=True
-    )
-    
-    return agenda
+    emacs_agenda = '(org-batch-agenda "a")' 
+
+    output = subprocess.run(
+        ["emacs", "-batch", "-l" ,"~/.emacs.d/init.el", "-eval", emacs_agenda], text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+    ).stdout 
+
+    return output
 
 
 def parse_agenda() -> str:
@@ -61,6 +58,7 @@ def parse_agenda() -> str:
 
     print(agenda)
     agenda = agenda[:agenda.find("(")]
+    print(agenda)
 
 
 class Dashboard(Gtk.ApplicationWindow):
