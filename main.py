@@ -15,7 +15,9 @@ from exceptions import (
     NotLinuxException,
     NoValueFoundException,
 )
+from weather import get_weather
 
+import asyncio
 import gi
 
 gi.require_version("Gtk", "4.0")
@@ -30,7 +32,7 @@ def read_time() -> str:
     return open(TIME_PATH).read().strip()
 
 
-def is_running(process_name: str) -> bool:
+async def is_running(process_name: str) -> bool:
     try:
         if not os.name == "nt":
             output = subprocess.check_output(["pgrep", process_name])
@@ -41,7 +43,7 @@ def is_running(process_name: str) -> bool:
         return False
 
 
-def get_agenda() -> str:
+async def get_agenda() -> str:
     """Gets the agenda for today, then closes the agenda buffer"""
     # get_agenda_command =  ("(progn  (setq org-agenda-custom-commands  '((\"d\" \"Daily agenda and all TODOs\"  ((agenda \"\" ((org-agenda-span 1)))))))  (org-batch-agenda \"d\"))"
     #                        )
@@ -61,12 +63,12 @@ def get_agenda() -> str:
     return output
 
 
-def parse_agenda() -> list[str]:
-    if not is_running("emacs"):
+async def parse_agenda() -> list[str]:
+    if not await is_running("emacs"):
         raise Exception("AgendaOffline")
 
     try:
-        agenda = get_agenda()
+        agenda = await get_agenda()
     except EmacsUnavailableException as e:
         print(e)
         sys.exit(-1)
@@ -78,12 +80,12 @@ def parse_agenda() -> list[str]:
     return todos
 
 
-def VBox() -> Gtk.Box:
-    return Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+def VBox(spacing: int = 6) -> Gtk.Box:
+    return Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=spacing)
 
 
-def HBox() -> Gtk.Box:
-    return Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+def HBox(spacing: int = 6) -> Gtk.Box:
+    return Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=spacing)
 
 
 @final
@@ -95,26 +97,31 @@ class Dashboard(Gtk.ApplicationWindow):
             show_menubar=False,
             child=None,
             fullscreened=False,
-            default_width=400,
-            default_height=300,
+            default_width=800,
+            default_height=500,
             destroy_with_parent=True,
             hide_on_close=False,
             resizable=False,
             visible=True,
         )
 
-        self.grid = Gtk.Grid()
+        self.main_box = HBox(10)
         # half the grid shows the weather
         # the other half shows the agenda
-        self.set_child(self.grid)
+        self.set_child(self.main_box)
 
-        self.weather = HBox()
-        self.grid.attach(self.weather, 0, 0, 1, 1)
+        self.weather = Gtk.Box()
+        self.weather_box = VBox(10)
+        self.weather.append(self.weather_box)
+        self.weather_box.append(Gtk.Label(label="Weather"))
+        self.weather_box.append(Gtk.Label(label=asyncio.run(get_weather())))
+
+        self.main_box.append(self.weather)
 
         agenda_box = Gtk.ListBox()
-        self.grid.attach(agenda_box, 1, 0, 1, 1)
+        self.main_box.append(agenda_box)
 
-        self.agenda = parse_agenda()
+        self.agenda = asyncio.run(parse_agenda())
         for i in range(len(self.agenda)):
             label = Gtk.Label(label=self.agenda[i])
             agenda_box.append(label)
@@ -122,12 +129,8 @@ class Dashboard(Gtk.ApplicationWindow):
         self.timeBox = Gtk.Box()
         self.timeButton = Gtk.Button(label=read_time())
         self.timeButton.connect("clicked", self.on_time_button_clicked)
-        self.timeBox.attach(self.timeButton)
-        self.grid.attach(self.timeBox, 0, 0, 1, 1)
-
-        button2 = Gtk.Button(label="by", hexpand=True)
-        button2.connect("clicked", self.on_button_clicked)
-        agenda_box.append(button2)
+        self.timeBox.append(self.timeButton)
+        agenda_box.append(self.timeBox)
 
     def on_time_button_clicked(self, _w: Gtk.Button) -> None:
         new_label = self.timeButton.get_label()
