@@ -28,6 +28,13 @@ from gi.repository import GLib, Gtk  # noqa: E402
 TIME_PATH = os.path.expanduser("~/.time")
 
 
+def apply_styles(widget: Gtk.Widget, css: str):
+    provider = Gtk.CssProvider()
+    provider.load_from_data(css.encode())
+    context = widget.get_style_context()
+    context.add_provider(provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+
 def read_time() -> str:
     return open(TIME_PATH).read().strip()
 
@@ -45,8 +52,6 @@ async def is_running(process_name: str) -> bool:
 
 async def get_agenda() -> str:
     """Gets the agenda for today, then closes the agenda buffer"""
-    # get_agenda_command =  ("(progn  (setq org-agenda-custom-commands  '((\"d\" \"Daily agenda and all TODOs\"  ((agenda \"\" ((org-agenda-span 1)))))))  (org-batch-agenda \"d\"))"
-    #                        )
 
     emacs_agenda = "(progn \
     (require 'org-agenda) \
@@ -64,6 +69,7 @@ async def get_agenda() -> str:
 
 
 async def parse_agenda() -> list[str]:
+    return "TODO: some tasks and stuf\n 1:20 - 2:20 more stuff".splitlines()
     if not await is_running("emacs"):
         raise Exception("AgendaOffline")
 
@@ -74,9 +80,12 @@ async def parse_agenda() -> list[str]:
         sys.exit(-1)
 
     agenda = agenda.splitlines()
-    todos = list(map(
-        lambda x: x[x.find(":") + 1 :].strip(), filter(lambda x: "todo" in x, agenda)
-    ))
+    todos = list(
+        map(
+            lambda x: x[x.find(":") + 1 :].strip(),
+            filter(lambda x: "todo" in x, agenda),
+        )
+    )
     return todos
 
 
@@ -86,6 +95,37 @@ def VBox(spacing: int = 6) -> Gtk.Box:
 
 def HBox(spacing: int = 6) -> Gtk.Box:
     return Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=spacing)
+
+
+def timeBox() -> Gtk.Box:
+    timeBox = Gtk.Box()
+    timeButton = Gtk.Button(label=read_time())
+
+    def on_time_button_clicked(_w: Gtk.Button) -> None:
+        new_label = timeButton.get_label()
+        if new_label is not None:
+            with open(TIME_PATH, "w") as f:
+                f.write(new_label)
+        else:
+            raise NoValueFoundException("timeButton does not hold a label value")
+
+        timeButton.set_label(str(int(new_label) + 1))
+
+    timeButton.connect("clicked", on_time_button_clicked)
+    timeBox.append(timeButton)
+
+    return timeBox
+
+
+def weatherBox() -> Gtk.Box:
+    weather = Gtk.Box()
+    weather_box = VBox(10)
+    weather.append(weather_box)
+    weather_box.append(Gtk.Label(label="Weather"))
+    weather_label = Gtk.Label(label=str(asyncio.run(get_weather())) + "°F")
+    weather_box.append(weather_label)
+    apply_styles(weather_label, "label { font-size: 120px; }")
+    return weather
 
 
 @final
@@ -110,37 +150,32 @@ class Dashboard(Gtk.ApplicationWindow):
         # the other half shows the agenda
         self.set_child(self.main_box)
 
-        self.weather = Gtk.Box()
-        self.weather_box = VBox(10)
-        self.weather.append(self.weather_box)
-        self.weather_box.append(Gtk.Label(label="Weather"))
-        self.weather_box.append(Gtk.Label(label=asyncio.run(get_weather())))
-
+        self.weather = weatherBox()
         self.main_box.append(self.weather)
 
-        agenda_box = Gtk.ListBox()
+        agenda_box = VBox(20)
         self.main_box.append(agenda_box)
+        apply_styles(
+            agenda_box,
+            "box { margin: 100px; margin-top: 30px; padding: 10px; border: 1px solid; border-radius: 15px; }",
+        )
+
+        # agenda title bar with the title
+
+        self.agenda_title = Gtk.Box()
+        apply_styles(self.agenda_title, "padding: 10px; background-color: #f0f0f0;")
+        self.agenda_title_label = Gtk.Label(label="Agenda")
+        apply_styles(self.agenda_title_label, "label { font-size: 30px; }")
+        self.agenda_title.append(self.agenda_title_label)
+        agenda_box.append(self.agenda_title)
 
         self.agenda = asyncio.run(parse_agenda())
         for i in range(len(self.agenda)):
             label = Gtk.Label(label=self.agenda[i])
             agenda_box.append(label)
 
-        self.timeBox = Gtk.Box()
-        self.timeButton = Gtk.Button(label=read_time())
-        self.timeButton.connect("clicked", self.on_time_button_clicked)
-        self.timeBox.append(self.timeButton)
+        self.timeBox = timeBox()
         agenda_box.append(self.timeBox)
-
-    def on_time_button_clicked(self, _w: Gtk.Button) -> None:
-        new_label = self.timeButton.get_label()
-        if new_label is not None:
-            with open(TIME_PATH, "w") as f:
-                f.write(new_label)
-        else:
-            raise NoValueFoundException("timeButton does not hold a label value")
-
-        self.timeButton.set_label(str(int(new_label) + 1))
 
     def on_button_clicked(self, _w: Gtk.Button):
         print("dashboard_exit")
