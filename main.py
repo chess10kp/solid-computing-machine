@@ -283,11 +283,11 @@ def on_activate(app: Gtk.Application):
     win = Dashboard(application=app)
 
     GtkLayerShell.init_for_window(win)
-    GtkLayerShell.set_layer(win, GtkLayerShell.Layer.TOP)
+    GtkLayerShell.set_layer(win, GtkLayerShell.Layer.BOTTOM)
     GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.BOTTOM, True)
     GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, 20)
     GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, 20)
-    GtkLayerShell.auto_exclusive_zone_enable(win)
+    # GtkLayerShell.auto_exclusive_zone_enable(win)
 
     win.present()
 
