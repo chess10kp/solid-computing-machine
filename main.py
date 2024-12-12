@@ -3,6 +3,7 @@
 # pyright: reportUntypedBaseClass=false
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportUnusedCallResult=false
+# pyright: reportUnknownVariableType=false
 # type: ignore
 
 import sys
@@ -16,6 +17,9 @@ from exceptions import (
     NoValueFoundException,
 )
 from weather import get_weather
+import style
+from datetime import datetime as dt
+import calendar
 
 import asyncio
 import gi
@@ -28,7 +32,7 @@ from gi.repository import GLib, Gtk  # noqa: E402
 TIME_PATH = os.path.expanduser("~/.time")
 
 
-def apply_styles(widget: Gtk.Widget, css: str):
+def apply_styles(widget: Gtk.Box | Gtk.Widget, css: str):
     provider = Gtk.CssProvider()
     provider.load_from_data(css.encode())
     context = widget.get_style_context()
@@ -68,7 +72,17 @@ async def get_agenda() -> str:
     return output
 
 
+def get_default_styling() -> str: 
+    return "  margin: %spx; margin-top: %spx; padding: %spx; border: %spx solid; border-radius: %spx; "  % (
+                style.WIDGET_MARGINS[0],
+                style.WIDGET_MARGINS[0],
+                style.PADDING,
+                style.BORDER,
+                style.BORDER_ROUNDING,
+            ),
+
 async def parse_agenda() -> list[str]:
+    # FIXME: development fix
     return "TODO: some tasks and stuf\n 1:20 - 2:20 more stuff".splitlines()
     if not await is_running("emacs"):
         raise Exception("AgendaOffline")
@@ -120,12 +134,40 @@ def timeBox() -> Gtk.Box:
 def weatherBox() -> Gtk.Box:
     weather = Gtk.Box()
     weather_box = VBox(10)
+    apply_styles(weather, "box {%s}" % get_default_styling())
     weather.append(weather_box)
     weather_box.append(Gtk.Label(label="Weather"))
-    weather_label = Gtk.Label(label=str(asyncio.run(get_weather())) + "°F")
+    # FIXME: this is a temp fix, change on deploy
+    # weather_label = Gtk.Label(label=str(asyncio.run(get_weather())) + "°F")
+    weather_label = Gtk.Label(label="70°F")
     weather_box.append(weather_label)
     apply_styles(weather_label, "label { font-size: 120px; }")
     return weather
+
+
+def Calendar() -> Gtk.Box:
+    todays_date = dt.now()
+    calendar_str = calendar.month(todays_date.year, todays_date.month)
+    print(calendar_str)
+
+    calendar_box : Gtk.Box = Gtk.Box()
+    calendar_label = Gtk.TextView()
+    calendar_label.set_editable(False)
+    calendar_label.set_cursor_visible(False)
+    calendar_label.set_monospace(True)
+    calendar_label.set_hexpand(True)
+    calendar_label.set_vexpand(True)
+    apply_styles(calendar_label, "textview { font-size: %spx; }" % style.CALENDAR_FONT_SIZE) 
+    apply_styles(calendar_box, "box {%s}" % get_default_styling())
+    buffer = calendar_label.get_buffer()
+    if buffer:
+        buffer.set_text(calendar_str)
+    else:
+        raise Exception("Unable to create Calendar Buffer")
+    calendar_box.append(calendar_label)
+
+    return calendar_box
+    
 
 
 @final
@@ -137,7 +179,7 @@ class Dashboard(Gtk.ApplicationWindow):
             show_menubar=False,
             child=None,
             fullscreened=False,
-            default_width=800,
+            default_width=1200,
             default_height=500,
             destroy_with_parent=True,
             hide_on_close=False,
@@ -153,13 +195,18 @@ class Dashboard(Gtk.ApplicationWindow):
         self.weather = weatherBox()
         self.main_box.append(self.weather)
 
-        agenda_box = VBox(20)
-        self.main_box.append(agenda_box)
+        self.agenda_box = VBox(20)
+        agenda_box: Gtk.Box = VBox(20)
+        self.agenda_box.append(agenda_box)
+        self.main_box.append(self.agenda_box)
         apply_styles(
             agenda_box,
-            "box { margin: 100px; margin-top: 30px; padding: 10px; border: 1px solid; border-radius: 15px; }",
+            "box {%s}" % get_default_styling()
         )
 
+        self.calendar = Calendar()
+        self.main_box.append(self.calendar)
+        
         # agenda title bar with the title
 
         self.agenda_title = Gtk.Box()
@@ -175,7 +222,7 @@ class Dashboard(Gtk.ApplicationWindow):
             agenda_box.append(label)
 
         self.timeBox = timeBox()
-        agenda_box.append(self.timeBox)
+        self.agenda_box.append(self.timeBox)
 
     def on_button_clicked(self, _w: Gtk.Button):
         print("dashboard_exit")
@@ -183,8 +230,11 @@ class Dashboard(Gtk.ApplicationWindow):
 
 
 def on_activate(app: Gtk.Application):
+    # how to set the window to the layer above the desktop
+
     win = Dashboard(application=app)
     win.present()
+
 
 
 app = Gtk.Application(application_id="com.example")
