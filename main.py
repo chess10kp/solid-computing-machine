@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # pyright: reportMissingTypeStubs=false
 # pyright: reportUnknownMemberType=false
 # pyright: reportUntypedBaseClass=false
@@ -8,21 +9,31 @@
 
 import sys
 import os
+
 import subprocess
-from pprint import pprint
 from typing_extensions import final
 from exceptions import (
     EmacsUnavailableException,
     NotLinuxException,
     NoValueFoundException,
 )
-from weather import get_weather
 import style
 from datetime import datetime as dt
 import calendar
 
 import asyncio
-import gi
+try:
+    import gi
+    from weather import get_weather
+except ModuleNotFoundError:
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    venv_python = os.path.join(script_dir, "venv", "bin", "python")
+
+    if not os.path.exists(venv_python):
+        sys.stderr.write("Virtual environment not found in 'venv' directory.\n")
+        sys.exit(1)
+
+    os.execv(venv_python, [venv_python] + sys.argv)
 
 
 # For GTK4 Layer Shell to get linked before libwayland-client we must explicitly load it before importing with gi
@@ -91,9 +102,6 @@ def get_default_styling() -> str:
 async def parse_agenda() -> list[str]:
     # FIXME: development fix
     # return "TODO: some tasks and stuf\n 1:20 - 2:20 more stuff".splitlines()
-    if not await is_running("emacs"):
-        raise Exception("AgendaOffline")
-
     try:
         agenda = await get_agenda()
     except EmacsUnavailableException as e:
@@ -172,9 +180,12 @@ def Time() -> Gtk.Box:
 
     time_widget = Gtk.Label(label=dt.now().strftime("%I:%M %p"))
     day_widget = Gtk.Label(label=dt.now().strftime("%A"))
+
+    def update_time(): 
+        return dt.now().strftime("%I:%M %p")
     # poll to refresh the time every minute
-    GLib.timeout_add_seconds(60, lambda: time_widget.set_label(dt.now().strftime("%I:%M %p")))
-    GLib.timeout_add_seconds(3600, lambda: day_widget.set_label(dt.now().strftime("%A")))
+    GLib.timeout_add_seconds(60, (lambda: time_widget.set_label(update_time()) or True))
+    # GLib.timeout_add_seconds(3600, lambda: day_widget.set_label(dt.now().strftime("%A")))
     apply_styles(timeBox, "box {%s}" % get_default_styling())
 
     timeBox.append(time_widget)
@@ -214,6 +225,31 @@ def Calendar() -> Gtk.Box:
     return calendar_box
     
 
+def Agenda() -> Gtk.Box:
+    agenda_box = VBox(20)
+    agenda_box: Gtk.Box = VBox(20)
+    agenda_box.append(agenda_box)
+    apply_styles(
+        agenda_box,
+        "box {%s}" % get_default_styling()
+    )
+
+    agenda_title = Gtk.Box()
+    apply_styles(agenda_title, "padding: 10px; background-color: #f0f0f0;")
+    agenda_title_label = Gtk.Label(label="Agenda")
+    apply_styles(agenda_title_label, "label { font-size: 30px; }")
+    agenda_title.append(agenda_title_label)
+    agenda_box.append(agenda_title)
+
+    agenda = asyncio.run(parse_agenda())
+    for i in range(len(agenda)):
+        label = Gtk.Label(label=agenda[i])
+        agenda_box.append(label)
+
+    hourBox = timeBox()
+    agenda_box.append(hourBox)
+    return agenda_box
+
 
 @final
 class Dashboard(Gtk.ApplicationWindow):
@@ -248,30 +284,10 @@ class Dashboard(Gtk.ApplicationWindow):
         self.calendarBox.append(Calendar())
         self.calendarBox.append(Timer())
         self.main_box.append(self.calendarBox)
+
+
+        self.main_box.append(Agenda())
         
-        self.agenda_box = VBox(20)
-        agenda_box: Gtk.Box = VBox(20)
-        self.agenda_box.append(agenda_box)
-        self.main_box.append(self.agenda_box)
-        apply_styles(
-            agenda_box,
-            "box {%s}" % get_default_styling()
-        )
-
-        self.agenda_title = Gtk.Box()
-        apply_styles(self.agenda_title, "padding: 10px; background-color: #f0f0f0;")
-        self.agenda_title_label = Gtk.Label(label="Agenda")
-        apply_styles(self.agenda_title_label, "label { font-size: 30px; }")
-        self.agenda_title.append(self.agenda_title_label)
-        agenda_box.append(self.agenda_title)
-
-        self.agenda = asyncio.run(parse_agenda())
-        for i in range(len(self.agenda)):
-            label = Gtk.Label(label=self.agenda[i])
-            agenda_box.append(label)
-
-        self.hourBox = timeBox()
-        self.agenda_box.append(self.hourBox)
 
     def on_button_clicked(self, _w: Gtk.Button):
         print("dashboard_exit")
