@@ -11,12 +11,14 @@ import sys
 import os
 
 import subprocess
-from typing_extensions import final
+from typing_extensions import Iterable, final
 from exceptions import (
     EmacsUnavailableException,
     NotLinuxException,
     NoValueFoundException,
 )
+from habits import HabitManager
+
 import style
 from datetime import datetime as dt
 import calendar
@@ -93,7 +95,7 @@ async def get_agenda() -> str:
 
 
 def get_default_styling() -> str:
-    return (
+    return str(
         "  margin: %spx; margin-top: %spx; padding: %spx; border: %spx solid; border-radius: %spx; "
         % (
             style.WIDGET_MARGINS[0],
@@ -107,7 +109,7 @@ def get_default_styling() -> str:
 
 async def parse_agenda() -> list[str]:
     # FIXME: development fix
-    # return "TODO: some tasks and stuf\n 1:20 - 2:20 more stuff".splitlines()
+    return "TODO: some tasks and stuf\n 1:20 - 2:20 more stuff".splitlines()
     try:
         agenda = await get_agenda()
     except EmacsUnavailableException as e:
@@ -124,12 +126,22 @@ async def parse_agenda() -> list[str]:
     return todos
 
 
-def VBox(spacing: int = 6) -> Gtk.Box:
-    return Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=spacing)
+def VBox(spacing: int = 6, hexpand: bool = False, vexpand: bool = False) -> Gtk.Box:
+    return Gtk.Box(
+        orientation=Gtk.Orientation.VERTICAL,
+        spacing=spacing,
+        hexpand=hexpand,
+        vexpand=vexpand,
+    )
 
 
-def HBox(spacing: int = 6) -> Gtk.Box:
-    return Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=spacing)
+def HBox(spacing: int = 6, hexpand: bool = False, vexpand: bool = False) -> Gtk.Box:
+    return Gtk.Box(
+        orientation=Gtk.Orientation.HORIZONTAL,
+        spacing=spacing,
+        hexpand=hexpand,
+        vexpand=vexpand,
+    )
 
 
 def timeBox() -> Gtk.Box:
@@ -147,6 +159,7 @@ def timeBox() -> Gtk.Box:
         timeButton.set_label(str(int(new_label) + 1))
 
     timeButton.connect("clicked", on_time_button_clicked)
+
     timeBox.append(timeButton)
 
     return timeBox
@@ -157,10 +170,9 @@ def weatherBox() -> Gtk.Box:
     weather_box = VBox(10)
     apply_styles(weather, "box {%s}" % get_default_styling())
     weather.append(weather_box)
-    weather_box.append(Gtk.Label(label="Weather"))
     # FIXME: this is a temp fix, change on deploy
-    weather_label = Gtk.Label(label=str(asyncio.run(get_weather())) + "°F")
-    # weather_label = Gtk.Label(label="70°F")
+    # weather_label = Gtk.Label(label=str(asyncio.run(get_weather())) + "°F")
+    weather_label = Gtk.Label(label="70°F")
     weather_box.append(weather_label)
     apply_styles(weather_label, "label { font-size: 120px; }")
     return weather
@@ -182,23 +194,168 @@ def Timer() -> Gtk.Box:
     return timer_box
 
 
+def Habits() -> Gtk.Box:
+    habit_widget = VBox()
+    habits_box = VBox(10)
+    habits_title = Gtk.Label(label="Habits")
+    habits_title.set_xalign(0.5)
+    habit_widget.append(habits_title)
+    habit_widget.append(habits_box)
+
+    # Paths and setup
+    # Today's date
+    hm = HabitManager()
+
+    # UI for each habit
+    def generate_habits() -> list[Gtk.Box]:
+        habit_widgets = []
+        habits = hm.get_habits()
+        today = dt.today()
+        for habit in habits:
+            habit_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+
+            # Habit name
+            habit_label = Gtk.Label(label=habit["name"])
+            habit_label.set_xalign(0)
+
+            # Streak information
+            streak_label = Gtk.Label(
+                label=f"{habit['current_streak']} | {habit['best_streak']}"
+            )
+            streak_label.set_xalign(1)
+
+            # Check today's habit completion
+            done_today = False
+            if habit["latest_date"] == today.isoformat():
+                done_today = True
+
+            def on_check_toggled(button: Gtk.Button, habit):
+                nonlocal done_today
+                if button.get_active() and not done_today:
+                    # Mark habit as done today
+                    done_today = True
+                    habit["current_streak"] += 1
+                    habit["best_streak"] = max(
+                        habit["best_streak"], habit["current_streak"]
+                    )
+                    habit["latest_date"] = today.isoformat()
+                    habit["week"].append(0)
+                    habit["week"] = habit["week"][-7:]  # Keep only last 7 days
+
+                    # Update streak label
+                    streak_label.set_text(
+                        f" {habit['current_streak']} | {habit['best_streak']}"
+                    )
+
+                    # Save updated habit to file
+                    save_habits(habits)
+
+            check_button = Gtk.CheckButton(label="")
+            check_button.set_active(done_today)
+            check_button.connect("toggled", on_check_toggled, habit)
+            remove_habit_button = Gtk.Button(label="-")
+            remove_habit_button.connect(
+                "clicked", lambda _: remove_habit(habit["name"], habits)
+            )
+
+            habit_box.append(habit_label)
+            habit_box.append(streak_label)
+            habit_box.append(check_button)
+            habit_box.append(remove_habit_button)
+
+            # Append habit box to the main habits box
+            habit_widgets.append(habit_box)
+        return habit_widgets
+
+    def remove_habit(habit: str, habits: list[dict[str, str]]) -> bool:
+        nonlocal habits_box
+        habits = hm.get_habits()
+        new_habits = ""
+        for h in habits:
+            if h["name"] != habit:
+                week_str = ",".join(map(str, h["week"]))
+                new_habits += f"{h['name']} {h['best_streak']} {h['current_streak']} {h['latest_date']} {week_str}\n"
+        hm.update_habits(new_habits)
+        for child in habits_box.get_children():
+            if isinstance(child, Gtk.Box)  and child.get_children()[0].get_label() == habit:
+                habits_box.remove(child)
+
+        return True
+
+    def add_habit(habit: str):
+        if not habit:
+            return
+        today = dt.today()
+        nonlocal habits_box, habit_widget
+
+        hm.add_habit(f"{habit} 0 0 {today.isoformat()} 0,0,0,0,0,0,0\n")
+        new_habit = HBox(10)
+        new_habit_label = Gtk.Label(label=habit)
+        new_habit_streak = Gtk.Label(label="0 | 0")
+        new_habit_check = Gtk.CheckButton(label="")
+        new_habit_remove = Gtk.Button(label="-")
+        new_habit_remove.connect("clicked", lambda _: remove_habit(habit, hm.get_habits()))
+        new_habit.append(new_habit_label)
+        new_habit.append(new_habit_streak)
+        new_habit.append(new_habit_check)
+        new_habit.append(new_habit_remove)
+        habits_box.append(new_habit)
+
+    def make_habit_widgets() -> None: 
+        nonlocal habits_box, habit_widget
+        habit_widget.remove(habits_box)
+        habits_box = VBox()
+        habit_widget.append(habits_box)
+        habits = generate_habits()
+        for h in habits:
+            habits_box.append(h)
+
+    make_habit_widgets()
+
+    new_habit_box = HBox(10)
+    new_habit_entry = Gtk.Entry()
+    new_habit_entry.set_placeholder_text("")
+    new_habit_button = Gtk.Button(label="+")
+    new_habit_button.connect("clicked", lambda _: add_habit(new_habit_entry.get_text()))
+    new_habit_button.connect("clicked", lambda _: new_habit_entry.set_text(""))
+    new_habit_box.append(new_habit_entry)
+    new_habit_box.append(new_habit_button)
+
+    # Add widgets to the habit box
+    habit_widget.append(new_habit_box)
+
+    return habit_widget
+
+
+def save_habits(habits: list[dict[str, str | int | list[int]]]):
+    """
+    Save the habits back to the cache file.
+    """
+    HOME = os.path.expanduser("~")
+    HABIT_FILE = os.path.join(HOME, ".cache/dashboard/habit_cache")
+    with open(HABIT_FILE, "w") as file:
+        for habit in habits:
+            week_str = ",".join(map(str, habit["week"]))
+            file.write(
+                f"{habit['name']} {habit['best_streak']} {habit['current_streak']} {habit['latest_date']} {week_str}\n"
+            )
+
+
 def Time() -> Gtk.Box:
     """Returns time widget with time, and day"""
-    timeBox = VBox(20)
+    timeBox = VBox(20, vexpand=True)
 
     time_widget = Gtk.Label(label=dt.now().strftime("%I:%M %p"))
-    day_widget = Gtk.Label(label=dt.now().strftime("%A"))
+    # IST time
 
     def update_time():
         return dt.now().strftime("%I:%M %p")
 
-    # poll to refresh the time every minute
     GLib.timeout_add_seconds(60, (lambda: time_widget.set_label(update_time()) or True))
-    # GLib.timeout_add_seconds(3600, lambda: day_widget.set_label(dt.now().strftime("%A")))
-    apply_styles(timeBox, "box {%s}" % get_default_styling())
+
+    apply_styles(time_widget, "label {font-size: 60px;}")
 
     timeBox.append(time_widget)
-    timeBox.append(day_widget)
 
     return timeBox
 
@@ -213,10 +370,7 @@ def Calendar() -> Gtk.Box:
     calendar_label.set_cursor_visible(False)
     calendar_label.set_monospace(True)
     calendar_label.set_hexpand(True)
-    apply_styles(
-        calendar_label, "textview { font-size: %spx; }" % style.CALENDAR_FONT_SIZE
-    )
-    apply_styles(calendar_box, "box {%s}" % get_default_styling())
+
     buffer = calendar_label.get_buffer()
     if buffer:
         buffer.set_text(calendar_str)
@@ -233,34 +387,38 @@ def Calendar() -> Gtk.Box:
         buffer.apply_tag(tag, start_pos, end_pos)
     else:
         raise Exception("Unable to create Calendar Buffer")
+
     calendar_box.append(calendar_label)
+
+    apply_styles(
+        calendar_label, "textview { font-size: %spx; }" % style.CALENDAR_FONT_SIZE
+    )
+    apply_styles(calendar_box, "box {%s}" % get_default_styling())
 
     return calendar_box
 
 
-def Agenda():
+def Agenda() -> Gtk.Box:
+    """Returns Agenda Widget"""
     agenda_box = VBox(20)
     agenda_ibox: Gtk.Box = VBox(20)
-    agenda_box.append(agenda_ibox)
-
-    refresh = Gtk.Button()
-
-    apply_styles(agenda_ibox, "box {%s}" % get_default_styling())
-
     agenda_title = Gtk.Box()
-    apply_styles(agenda_title, "padding: 10px; background-color: #f0f0f0;")
     agenda_title_label = Gtk.Label(label="Agenda")
-    apply_styles(agenda_title_label, "label { font-size: 30px; }")
-    agenda_title.append(agenda_title_label)
-    agenda_ibox.append(agenda_title)
+    hourBox = timeBox()
 
     agenda = asyncio.run(parse_agenda())
     for i in range(len(agenda)):
         label = Gtk.Label(label=agenda[i])
         agenda_ibox.append(label)
 
-    hourBox = timeBox()
+    agenda_title.append(agenda_title_label)
+    agenda_box.append(agenda_title)
+    agenda_box.append(agenda_ibox)
     agenda_box.append(hourBox)
+
+    apply_styles(agenda_ibox, "box {%s}" % get_default_styling())
+    apply_styles(agenda_title, "padding: 10px; background-color: #f0f0f0;")
+    apply_styles(agenda_title_label, "label { font-size: 30px; }")
 
     return agenda_box
 
@@ -300,20 +458,18 @@ class Dashboard(Gtk.ApplicationWindow):
 
         self.main_box.append(Agenda())
 
-    def on_button_clicked(self, _w: Gtk.Button):
-        print("dashboard_exit")
-        self.close()
+        self.main_box.append(Habits())
 
 
 def on_activate(app: Gtk.Application):
     # set to layer shell
     win = Dashboard(application=app)
 
-    GtkLayerShell.init_for_window(win)
-    GtkLayerShell.set_layer(win, GtkLayerShell.Layer.BOTTOM)
-    GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.BOTTOM, True)
-    GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, 20)
-    GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, 20)
+    # GtkLayerShell.init_for_window(win)
+    # GtkLayerShell.set_layer(win, GtkLayerShell.Layer.BOTTOM)
+    # GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.BOTTOM, True)
+    # GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, 20)
+    # GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, 20)
     # GtkLayerShell.auto_exclusive_zone_enable(win)
 
     win.present()
@@ -324,4 +480,4 @@ app.connect("activate", on_activate)
 
 app.run(None)
 
-sys.exit(0)
+app.connect("shutdown", lambda *_: sys.exit(0))
