@@ -291,6 +291,11 @@ def Habits() -> Gtk.Box:
     def add_habit(habit: str):
         if not habit:
             return
+        habits = hm.get_habits()
+        for h in habits:
+            if h["name"] == habit:
+                return
+
         today = dt.today()
         nonlocal habits_box, habit_widget
 
