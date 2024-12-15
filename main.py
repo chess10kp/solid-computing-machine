@@ -276,10 +276,16 @@ def Habits() -> Gtk.Box:
                 week_str = ",".join(map(str, h["week"]))
                 new_habits += f"{h['name']} {h['best_streak']} {h['current_streak']} {h['latest_date']} {week_str}\n"
         hm.update_habits(new_habits)
-        for child in habits_box.get_children():
-            if isinstance(child, Gtk.Box)  and child.get_children()[0].get_label() == habit:
-                habits_box.remove(child)
-
+        f_child = habits_box.get_first_child()
+        while f_child is not None:
+            if isinstance(f_child, Gtk.Box):
+                label = f_child.get_first_child()
+                while label:
+                    if isinstance(label, Gtk.Label) and label.get_text() == habit:
+                        habits_box.remove(f_child)
+                        return True
+                    label = label.get_next_sibling()
+            f_child = f_child.get_next_sibling()
         return True
 
     def add_habit(habit: str):
