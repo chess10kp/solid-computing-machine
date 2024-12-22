@@ -7,6 +7,10 @@
 # pyright: reportUnknownVariableType=false
 # type: ignore
 
+# TODO:refresh button for agenda
+# TODO: Use icons instead of words
+# TODO: Multimonitor support
+
 import sys
 import os
 
@@ -22,6 +26,8 @@ from habits import HabitManager
 import style
 from datetime import datetime as dt
 import calendar
+
+import cairo
 
 import asyncio
 
@@ -48,13 +54,13 @@ CDLL("libgtk4-layer-shell.so")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 
-from gi.repository import GLib, Gtk, Pango, Gtk4LayerShell as GtkLayerShell  # noqa: E402
+from gi.repository import GLib, Gdk, Gtk, Pango, Gtk4LayerShell as GtkLayerShell  # noqa: E402
 
 
 TIME_PATH = os.path.expanduser("~/.time")
 
 
-def apply_styles(widget: Gtk.Box | Gtk.Widget, css: str):
+def apply_styles(widget: Gtk.Box | Gtk.Widget | Gtk.Label , css: str):
     provider = Gtk.CssProvider()
     provider.load_from_data(css.encode())
     context = widget.get_style_context()
@@ -109,7 +115,7 @@ def get_default_styling() -> str:
 
 async def parse_agenda() -> list[str]:
     # FIXME: development fix
-    return "TODO: some tasks and stuf\n 1:20 - 2:20 more stuff".splitlines()
+    # return "TODO: some tasks and stuf\n 1:20 - 2:20 more stuff".splitlines()
     try:
         agenda = await get_agenda()
     except EmacsUnavailableException as e:
@@ -165,14 +171,14 @@ def timeBox() -> Gtk.Box:
     return timeBox
 
 
-def weatherBox() -> Gtk.Box:
+def weather_widget() -> Gtk.Box:
     weather = Gtk.Box()
     weather_box = VBox(10)
     apply_styles(weather, "box {%s}" % get_default_styling())
     weather.append(weather_box)
     # FIXME: this is a temp fix, change on deploy
-    # weather_label = Gtk.Label(label=str(asyncio.run(get_weather())) + "°F")
-    weather_label = Gtk.Label(label="70°F")
+    weather_label = Gtk.Label(label=str(asyncio.run(get_weather())) + "°F")
+    # weather_label = Gtk.Label(label="70°F")
     weather_box.append(weather_label)
     apply_styles(weather_label, "label { font-size: 120px; }")
     return weather
@@ -197,9 +203,6 @@ def Timer() -> Gtk.Box:
 def Habits() -> Gtk.Box:
     habit_widget = VBox()
     habits_box = VBox(10)
-    habits_title = Gtk.Label(label="Habits")
-    habits_title.set_xalign(0.5)
-    habit_widget.append(habits_title)
     habit_widget.append(habits_box)
 
     # Paths and setup
@@ -248,7 +251,7 @@ def Habits() -> Gtk.Box:
                     )
 
                     # Save updated habit to file
-                    save_habits(habits)
+                    hm.update_habits(habits)
 
             check_button = Gtk.CheckButton(label="")
             check_button.set_active(done_today)
@@ -305,14 +308,16 @@ def Habits() -> Gtk.Box:
         new_habit_streak = Gtk.Label(label="0 | 0")
         new_habit_check = Gtk.CheckButton(label="")
         new_habit_remove = Gtk.Button(label="-")
-        new_habit_remove.connect("clicked", lambda _: remove_habit(habit, hm.get_habits()))
+        new_habit_remove.connect(
+            "clicked", lambda _: remove_habit(habit, hm.get_habits())
+        )
         new_habit.append(new_habit_label)
         new_habit.append(new_habit_streak)
         new_habit.append(new_habit_check)
         new_habit.append(new_habit_remove)
         habits_box.append(new_habit)
 
-    def make_habit_widgets() -> None: 
+    def make_habit_widgets() -> None:
         nonlocal habits_box, habit_widget
         habit_widget.remove(habits_box)
         habits_box = VBox()
@@ -332,32 +337,20 @@ def Habits() -> Gtk.Box:
     new_habit_box.append(new_habit_entry)
     new_habit_box.append(new_habit_button)
 
+    # region = cairo.Region(cairo.RectangleInt(50, 50, 100, 100))
+    # new_habit_box.input_shape_combine_region(region)
+
     # Add widgets to the habit box
     habit_widget.append(new_habit_box)
 
     return habit_widget
 
 
-def save_habits(habits: list[dict[str, str | int | list[int]]]):
-    """
-    Save the habits back to the cache file.
-    """
-    HOME = os.path.expanduser("~")
-    HABIT_FILE = os.path.join(HOME, ".cache/dashboard/habit_cache")
-    with open(HABIT_FILE, "w") as file:
-        for habit in habits:
-            week_str = ",".join(map(str, habit["week"]))
-            file.write(
-                f"{habit['name']} {habit['best_streak']} {habit['current_streak']} {habit['latest_date']} {week_str}\n"
-            )
-
-
 def Time() -> Gtk.Box:
     """Returns time widget with time, and day"""
-    timeBox = VBox(20, vexpand=True)
+    timeBox = VBox(20)
 
     time_widget = Gtk.Label(label=dt.now().strftime("%I:%M %p"))
-    # IST time
 
     def update_time():
         return dt.now().strftime("%I:%M %p")
@@ -372,38 +365,42 @@ def Time() -> Gtk.Box:
 
 
 def Calendar() -> Gtk.Box:
+    calendar_box: Gtk.Box = VBox(vexpand=True)
     todays_date = dt.now()
-    calendar_str = calendar.month(todays_date.year, todays_date.month)
+    calendar_str = calendar.month(todays_date.year, todays_date.month).splitlines()
+    calendar_str = list(map(str.split, calendar_str))
 
-    calendar_box: Gtk.Box = Gtk.Box()
-    calendar_label = Gtk.TextView()
-    calendar_label.set_editable(False)
-    calendar_label.set_cursor_visible(False)
-    calendar_label.set_monospace(True)
-    calendar_label.set_hexpand(True)
+    calendar_label = Gtk.Grid(
+        hexpand=False, vexpand=False
+    )
 
-    buffer = calendar_label.get_buffer()
-    if buffer:
-        buffer.set_text(calendar_str)
+  # Create a Grid to hold the calendar
+    calendar_label.set_column_spacing(5)
+    calendar_label.set_row_spacing(5)
+    calendar_label.set_halign(Gtk.Align.CENTER)
+    calendar_label.set_valign(Gtk.Align.CENTER)
+    calendar_label.set_hexpand(False)
+    calendar_label.set_vexpand(False)
 
-        # Create a text tag to bolden today's date
-        tag: Gtk.TextTag = buffer.create_tag("bold", weight=Pango.Weight.ULTRABOLD)
+    # Add the days of the month
+    for row, week in enumerate(calendar_str[1:]):
+        for col, day in enumerate(week):
+            label = Gtk.Label(label=str(day))
+            label.set_xalign(0.5)
+            label.set_yalign(0.5)
+            apply_styles(label, "label { font-size: 20px; }")
 
-        # Find and bold the specific part of the text (today's date)
-        start_pos = buffer.get_iter_at_offset(calendar_str.find(str(todays_date.day)))
-        end_pos = buffer.get_iter_at_offset(
-            calendar_str.find(str(todays_date.day)) + len(str(todays_date.day))
-        )
-        # Apply the bold tag to today's date
-        buffer.apply_tag(tag, start_pos, end_pos)
-    else:
-        raise Exception("Unable to create Calendar Buffer")
+            if day == str(todays_date.day):
+                apply_styles(
+                    label,
+                    "label { font-weight: bold; background-color: #FFD700; color: black; padding: 2px; border-radius: 4px; }",
+                )
+
+            calendar_label.attach(label, col, row, 1,1)
+
 
     calendar_box.append(calendar_label)
 
-    apply_styles(
-        calendar_label, "textview { font-size: %spx; }" % style.CALENDAR_FONT_SIZE
-    )
     apply_styles(calendar_box, "box {%s}" % get_default_styling())
 
     return calendar_box
@@ -413,23 +410,15 @@ def Agenda() -> Gtk.Box:
     """Returns Agenda Widget"""
     agenda_box = VBox(20)
     agenda_ibox: Gtk.Box = VBox(20)
-    agenda_title = Gtk.Box()
-    agenda_title_label = Gtk.Label(label="Agenda")
-    hourBox = timeBox()
 
     agenda = asyncio.run(parse_agenda())
     for i in range(len(agenda)):
         label = Gtk.Label(label=agenda[i])
         agenda_ibox.append(label)
 
-    agenda_title.append(agenda_title_label)
-    agenda_box.append(agenda_title)
     agenda_box.append(agenda_ibox)
-    agenda_box.append(hourBox)
 
     apply_styles(agenda_ibox, "box {%s}" % get_default_styling())
-    apply_styles(agenda_title, "padding: 10px; background-color: #f0f0f0;")
-    apply_styles(agenda_title_label, "label { font-size: 30px; }")
 
     return agenda_box
 
@@ -443,7 +432,6 @@ class Dashboard(Gtk.ApplicationWindow):
             show_menubar=False,
             child=None,
             fullscreened=False,
-            default_width=1200,
             default_height=500,
             destroy_with_parent=True,
             hide_on_close=False,
@@ -451,43 +439,62 @@ class Dashboard(Gtk.ApplicationWindow):
             visible=True,
         )
 
-        self.main_box = HBox(10)
+        self.main_box = Gtk.Box(
+            orientation=Gtk.Orientation.HORIZONTAL, spacing=20, homogeneous=False
+        )
+
         # half the grid shows the weather
         # the other half shows the agenda
         self.set_child(self.main_box)
 
         self.weatherBox = VBox(20)
-        self.weather = weatherBox()
+        self.weather = weather_widget()
+        self.weatherBox.append(Time())
         self.weatherBox.append(self.weather)
         self.main_box.append(self.weatherBox)
 
-        self.calendarBox = VBox(20)
-        self.calendarBox.append(Time())
+        self.calendarBox = VBox(20, hexpand=True, vexpand=True)
+        self.calendarBox.set_halign(Gtk.Align.CENTER)
         self.calendarBox.append(Calendar())
+        self.calendarBox.append(Agenda())
         # self.calendarBox.append(Timer())
         self.main_box.append(self.calendarBox)
 
-        self.main_box.append(Agenda())
+        self.agenda_box = VBox(20)
+        self.agenda_box.append(Habits())
+        self.main_box.append(self.agenda_box)
 
-        self.main_box.append(Habits())
 
+def get_all_monitors(monitor, window): 
+    geometry = monitor.get_geometry()
+    scale_factor =  monitor.get_scale_factor()
 
 def on_activate(app: Gtk.Application):
     # set to layer shell
     win = Dashboard(application=app)
 
-    # GtkLayerShell.init_for_window(win)
-    # GtkLayerShell.set_layer(win, GtkLayerShell.Layer.BOTTOM)
-    # GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.BOTTOM, True)
-    # GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, 20)
-    # GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, 20)
-    # GtkLayerShell.auto_exclusive_zone_enable(win)
+    GtkLayerShell.init_for_window(win)
+    GtkLayerShell.set_layer(win, GtkLayerShell.Layer.BOTTOM)
+    GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, 20)
+    GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, 20)
 
     win.present()
 
 
 app = Gtk.Application(application_id="com.example")
 app.connect("activate", on_activate)
+
+display = Gdk.Display.get_default()
+if not display:
+    sys.exit()
+
+# Create a dashboard for each monitor
+monitors = list(display.get_monitors() )
+
+for i in range(len(display.get_monitors())):
+    pass
+
+    # create_dashboard_for_monitor(monitor, display)
 
 app.run(None)
 

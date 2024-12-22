@@ -8,7 +8,10 @@ async def get_weather():
   # declare the client. the measuring unit used defaults to the metric system (celcius, km/h, etc.)
     async with python_weather.Client(unit=python_weather.IMPERIAL) as client:
     # fetch a weather forecast from a city
-        weather = await client.get(str(CITY) if CITY else "New York")
+        try:
+            weather = await client.get(str(CITY) if CITY else "New York")
+        except Exception as e:
+            return "00" 
 
         if not weather:
             raise WeatherUnavailableException("Weather unavailable")
