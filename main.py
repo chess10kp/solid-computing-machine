@@ -5,7 +5,8 @@
 # pyright: reportAttributeAccessIssue=false
 # pyright: reportUnusedCallResult=false
 # pyright: reportUnknownVariableType=false
-# type: ignore
+# pyright: basic
+# ruff: ignore
 
 # TODO:refresh button for agenda
 # TODO: Use icons instead of words
@@ -453,15 +454,16 @@ class Dashboard(Gtk.ApplicationWindow):
         self.weatherBox.append(self.weather)
         self.main_box.append(self.weatherBox)
 
-        self.calendarBox = VBox(20, hexpand=True, vexpand=True)
-        self.calendarBox.set_halign(Gtk.Align.CENTER)
+        self.calendarDiv = VBox(20, hexpand=True, vexpand=True)
+        self.calendarBox = HBox(20, hexpand=True, vexpand=False)
+        self.calendarBox.set_halign(Gtk.Align.START)
         self.calendarBox.append(Calendar())
-        self.calendarBox.append(Agenda())
+        self.calendarDiv.append(self.calendarBox)
         # self.calendarBox.append(Timer())
-        self.main_box.append(self.calendarBox)
+        self.main_box.append(self.calendarDiv)
 
         self.agenda_box = VBox(20)
-        self.agenda_box.append(Habits())
+        self.agenda_box.append(Agenda())
         self.main_box.append(self.agenda_box)
 
 
@@ -490,9 +492,10 @@ if not display:
 
 # Create a dashboard for each monitor
 monitors = list(display.get_monitors() )
+print(monitors)
 
-for i in range(len(display.get_monitors())):
-    pass
+for i in range(len(monitors)):
+    print(monitors[i])
 
     # create_dashboard_for_monitor(monitor, display)
 
