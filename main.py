@@ -371,6 +371,10 @@ def Calendar() -> Gtk.Box:
     calendar_str = calendar.month(todays_date.year, todays_date.month).splitlines()
     calendar_str = list(map(str.split, calendar_str))
 
+    if len(calendar_str[2]) < 7:
+        for i in range(7 - len(calendar_str[2])):
+            calendar_str[2].insert(0 , " ")
+
     calendar_label = Gtk.Grid(
         hexpand=False, vexpand=False
     )
@@ -444,22 +448,19 @@ class Dashboard(Gtk.ApplicationWindow):
             orientation=Gtk.Orientation.HORIZONTAL, spacing=20, homogeneous=False
         )
 
-        # half the grid shows the weather
-        # the other half shows the agenda
         self.set_child(self.main_box)
 
         self.weatherBox = VBox(20)
         self.weather = weather_widget()
         self.weatherBox.append(Time())
         self.weatherBox.append(self.weather)
+        self.weatherBox.append(Calendar())
         self.main_box.append(self.weatherBox)
 
         self.calendarDiv = VBox(20, hexpand=True, vexpand=True)
         self.calendarBox = HBox(20, hexpand=True, vexpand=False)
         self.calendarBox.set_halign(Gtk.Align.START)
-        self.calendarBox.append(Calendar())
         self.calendarDiv.append(self.calendarBox)
-        # self.calendarBox.append(Timer())
         self.main_box.append(self.calendarDiv)
 
         self.agenda_box = VBox(20)
