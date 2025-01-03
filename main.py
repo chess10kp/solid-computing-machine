@@ -8,12 +8,13 @@
 # pyright: basic
 # ruff: ignore
 
-# TODO:refresh button for agenda
 # TODO: Use icons instead of words
 # TODO: Multimonitor support
 
 import sys
 import os
+
+from itertools import starmap
 
 import subprocess
 from typing_extensions import Iterable, final
@@ -414,15 +415,37 @@ def Calendar() -> Gtk.Box:
 def Agenda() -> Gtk.Box:
     """Returns Agenda Widget"""
     agenda_box = VBox(20)
-    agenda_ibox: Gtk.Box = VBox(20)
+    agenda_ibox = VBox(20)
 
-    agenda = asyncio.run(parse_agenda())
-    for i in range(len(agenda)):
-        label = Gtk.Label(label=agenda[i])
-        agenda_ibox.append(label)
+    def update(): 
+        agenda = asyncio.run(parse_agenda())
 
+        child = agenda_ibox.get_first_child()
+
+        lines = []
+        while child : 
+            lines.append(child.get_label())
+
+
+        while child : 
+            prev = child
+            child = child.get_next_sibling()
+            agenda_ibox.remove(prev)
+            
+        for i in range(len(agenda)):
+            label = Gtk.Label(label=agenda[i])
+            GLib.idle_add(agenda_ibox.append, label)
+
+    update()
     agenda_box.append(agenda_ibox)
 
+    buttons = HBox() 
+    agenda_box.append(buttons)
+
+    refresh = Gtk.Button(label="Refresh")
+    refresh.connect("clicked", lambda x: update())
+    buttons.append(refresh)
+    
     apply_styles(agenda_ibox, "box {%s}" % get_default_styling())
 
     return agenda_box
