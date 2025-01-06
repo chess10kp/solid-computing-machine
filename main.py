@@ -8,9 +8,6 @@
 # pyright: basic
 # ruff: ignore
 
-# TODO: Use icons instead of words
-# TODO: Multimonitor support
-
 import sys
 import os
 
@@ -28,8 +25,6 @@ from habits import HabitManager
 import style
 from datetime import datetime as dt
 import calendar
-
-import cairo
 
 import asyncio
 
@@ -178,9 +173,7 @@ def weather_widget() -> Gtk.Box:
     weather_box = VBox(10)
     apply_styles(weather, "box {%s}" % get_default_styling())
     weather.append(weather_box)
-    # FIXME: this is a temp fix, change on deploy
     weather_label = Gtk.Label(label=str(asyncio.run(get_weather())) + "°F")
-    # weather_label = Gtk.Label(label="70°F")
     weather_box.append(weather_label)
     apply_styles(weather_label, "label { font-size: 120px; }")
     return weather
@@ -189,8 +182,6 @@ def weather_widget() -> Gtk.Box:
 def Timer() -> Gtk.Box:
     timer_box = VBox(10)
 
-    # replace with svg
-    # ./alarm.svg
     timer_image = Gtk.Label(label="⏰")
     ibox = HBox()
     ibox.append(timer_image)
@@ -200,153 +191,6 @@ def Timer() -> Gtk.Box:
     ibox.append(timer_button)
 
     return timer_box
-
-
-def Habits() -> Gtk.Box:
-    habit_widget = VBox()
-    habits_box = VBox(10)
-    habit_widget.append(habits_box)
-
-    # Paths and setup
-    # Today's date
-    hm = HabitManager()
-
-    # UI for each habit
-    def generate_habits() -> list[Gtk.Box]:
-        habit_widgets = []
-        habits = hm.get_habits()
-        today = dt.today()
-        for habit in habits:
-            habit_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
-
-            # Habit name
-            habit_label = Gtk.Label(label=habit["name"])
-            habit_label.set_xalign(0)
-
-            # Streak information
-            streak_label = Gtk.Label(
-                label=f"{habit['current_streak']} | {habit['best_streak']}"
-            )
-            streak_label.set_xalign(1)
-
-            # Check today's habit completion
-            done_today = False
-            if habit["latest_date"] == today.isoformat():
-                done_today = True
-
-            def on_check_toggled(button: Gtk.Button, habit):
-                nonlocal done_today
-                if button.get_active() and not done_today:
-                    # Mark habit as done today
-                    done_today = True
-                    habit["current_streak"] += 1
-                    habit["best_streak"] = max(
-                        habit["best_streak"], habit["current_streak"]
-                    )
-                    habit["latest_date"] = today.isoformat()
-                    habit["week"].append(0)
-                    habit["week"] = habit["week"][-7:]  # Keep only last 7 days
-
-                    # Update streak label
-                    streak_label.set_text(
-                        f" {habit['current_streak']} | {habit['best_streak']}"
-                    )
-
-                    # Save updated habit to file
-                    hm.update_habits(habits)
-
-            check_button = Gtk.CheckButton(label="")
-            check_button.set_active(done_today)
-            check_button.connect("toggled", on_check_toggled, habit)
-            remove_habit_button = Gtk.Button(label="-")
-            remove_habit_button.connect(
-                "clicked", lambda _: remove_habit(habit["name"], habits)
-            )
-
-            habit_box.append(habit_label)
-            habit_box.append(streak_label)
-            habit_box.append(check_button)
-            habit_box.append(remove_habit_button)
-
-            # Append habit box to the main habits box
-            habit_widgets.append(habit_box)
-        return habit_widgets
-
-    def remove_habit(habit: str, habits: list[dict[str, str]]) -> bool:
-        nonlocal habits_box
-        habits = hm.get_habits()
-        new_habits = ""
-        for h in habits:
-            if h["name"] != habit:
-                week_str = ",".join(map(str, h["week"]))
-                new_habits += f"{h['name']} {h['best_streak']} {h['current_streak']} {h['latest_date']} {week_str}\n"
-        hm.update_habits(new_habits)
-        f_child = habits_box.get_first_child()
-        while f_child is not None:
-            if isinstance(f_child, Gtk.Box):
-                label = f_child.get_first_child()
-                while label:
-                    if isinstance(label, Gtk.Label) and label.get_text() == habit:
-                        habits_box.remove(f_child)
-                        return True
-                    label = label.get_next_sibling()
-            f_child = f_child.get_next_sibling()
-        return True
-
-    def add_habit(habit: str):
-        if not habit:
-            return
-        habits = hm.get_habits()
-        for h in habits:
-            if h["name"] == habit:
-                return
-
-        today = dt.today()
-        nonlocal habits_box, habit_widget
-
-        hm.add_habit(f"{habit} 0 0 {today.isoformat()} 0,0,0,0,0,0,0\n")
-        new_habit = HBox(10)
-        new_habit_label = Gtk.Label(label=habit)
-        new_habit_streak = Gtk.Label(label="0 | 0")
-        new_habit_check = Gtk.CheckButton(label="")
-        new_habit_remove = Gtk.Button(label="-")
-        new_habit_remove.connect(
-            "clicked", lambda _: remove_habit(habit, hm.get_habits())
-        )
-        new_habit.append(new_habit_label)
-        new_habit.append(new_habit_streak)
-        new_habit.append(new_habit_check)
-        new_habit.append(new_habit_remove)
-        habits_box.append(new_habit)
-
-    def make_habit_widgets() -> None:
-        nonlocal habits_box, habit_widget
-        habit_widget.remove(habits_box)
-        habits_box = VBox()
-        habit_widget.append(habits_box)
-        habits = generate_habits()
-        for h in habits:
-            habits_box.append(h)
-
-    make_habit_widgets()
-
-    new_habit_box = HBox(10)
-    new_habit_entry = Gtk.Entry()
-    new_habit_entry.set_placeholder_text("")
-    new_habit_button = Gtk.Button(label="+")
-    new_habit_button.connect("clicked", lambda _: add_habit(new_habit_entry.get_text()))
-    new_habit_button.connect("clicked", lambda _: new_habit_entry.set_text(""))
-    new_habit_box.append(new_habit_entry)
-    new_habit_box.append(new_habit_button)
-
-    # region = cairo.Region(cairo.RectangleInt(50, 50, 100, 100))
-    # new_habit_box.input_shape_combine_region(region)
-
-    # Add widgets to the habit box
-    habit_widget.append(new_habit_box)
-
-    return habit_widget
-
 
 def Time() -> Gtk.Box:
     """Returns time widget with time, and day"""
@@ -442,10 +286,8 @@ def Agenda() -> Gtk.Box:
     buttons = HBox() 
     agenda_box.append(buttons)
 
-    refresh = Gtk.Button(label="Refresh")
-    refresh.connect("clicked", lambda x: update())
-    buttons.append(refresh)
-    
+    GLib.timeout_add_seconds(120, (lambda: agenda_ibox.set_label(update()) or True))
+
     apply_styles(agenda_ibox, "box {%s}" % get_default_styling())
 
     return agenda_box
@@ -490,10 +332,8 @@ class Dashboard(Gtk.ApplicationWindow):
         self.agenda_box.append(Agenda())
         self.main_box.append(self.agenda_box)
 
+        apply_styles(self.main_box, "box { bg: #282828; }")
 
-def get_all_monitors(monitor, window): 
-    geometry = monitor.get_geometry()
-    scale_factor =  monitor.get_scale_factor()
 
 def on_activate(app: Gtk.Application):
     # set to layer shell
@@ -514,14 +354,12 @@ display = Gdk.Display.get_default()
 if not display:
     sys.exit()
 
-# Create a dashboard for each monitor
-monitors = list(display.get_monitors() )
-print(monitors)
+# get all the monitors, then create a window on each monitor
+monitors = display.get_monitors()
 
 for i in range(len(monitors)):
-    print(monitors[i])
-
-    # create_dashboard_for_monitor(monitor, display)
+    screen = monitors[i]
+    app.add_window(Dashboard(screen=screen))
 
 app.run(None)
 
