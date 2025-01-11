@@ -179,33 +179,53 @@ def weather_widget() -> Gtk.Box:
     return weather
 
 
-def Timer() -> Gtk.Box:
-    timer_box = VBox(10)
-
-    timer_image = Gtk.Label(label="⏰")
-    ibox = HBox()
-    ibox.append(timer_image)
-    ibox.append(Gtk.Entry())
-    timer_box.append(ibox)
-    timer_button = Gtk.Button(label="Start")
-    ibox.append(timer_button)
-
-    return timer_box
-
 def Time() -> Gtk.Box:
     """Returns time widget with time, and day"""
     timeBox = VBox(20)
 
     time_widget = Gtk.Label(label=dt.now().strftime("%I:%M %p"))
 
+    passingOfTimeBox = HBox(20)
+
+    def read_day_date():
+        return dt.now().strftime("%A, %B %d")
+    
+    dayDataButton = Gtk.Label(label=read_day_date())
+
+    def days_passed_this_year(): 
+        today = dt.now()
+        year_start = dt(today.year, 1, 1)
+        return (today - year_start).days + 1
+
+    numDaysInThisYearPassedButton = Gtk.Label(label=str(days_passed_this_year() ) + " d")
+    numHoursPassedThisYearButton = Gtk.Label(label=str(days_passed_this_year() * 24) + " hr")
+    numMinutesPassedThisYearButton = Gtk.Label(label=str(days_passed_this_year() * 24 * 60) + " min")
+
     def update_time():
         return dt.now().strftime("%I:%M %p")
 
     GLib.timeout_add_seconds(60, (lambda: time_widget.set_label(update_time()) or True))
+    GLib.timeout_add_seconds(600, (lambda: dayDataButton.set_label(read_day_date()) or True))
+
+    GLib.timeout_add_seconds(7200, (lambda: numDaysInThisYearPassedButton.set_label(str(days_passed_this_year())) or True))
+    GLib.timeout_add_seconds(600, (lambda: numHoursPassedThisYearButton.set_label(str(days_passed_this_year() * 24)) or True))
+    GLib.timeout_add_seconds(300, (lambda: numMinutesPassedThisYearButton.set_label(str(days_passed_this_year() * 24 * 60)) or True))
 
     apply_styles(time_widget, "label {font-size: 60px;}")
+    apply_styles(dayDataButton, "button {font-size: 30px;}")
+    apply_styles(passingOfTimeBox, "box {%s}" % get_default_styling())
+
+    apply_styles(numDaysInThisYearPassedButton, "button {font-size: 30px;}")
+    apply_styles(numHoursPassedThisYearButton, "button {font-size: 30px;}")
+    apply_styles(numMinutesPassedThisYearButton, "button {font-size: 30px;}")
+
+    passingOfTimeBox.append(numDaysInThisYearPassedButton)
+    passingOfTimeBox.append(numHoursPassedThisYearButton)
+    passingOfTimeBox.append(numMinutesPassedThisYearButton)
 
     timeBox.append(time_widget)
+    timeBox.append(dayDataButton)
+    timeBox.append(passingOfTimeBox)
 
     return timeBox
 
@@ -356,10 +376,6 @@ if not display:
 
 # get all the monitors, then create a window on each monitor
 monitors = display.get_monitors()
-
-for i in range(len(monitors)):
-    screen = monitors[i]
-    app.add_window(Dashboard(screen=screen))
 
 app.run(None)
 
