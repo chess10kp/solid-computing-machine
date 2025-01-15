@@ -207,9 +207,9 @@ def Time() -> Gtk.Box:
     GLib.timeout_add_seconds(60, (lambda: time_widget.set_label(update_time()) or True))
     GLib.timeout_add_seconds(600, (lambda: dayDataButton.set_label(read_day_date()) or True))
 
-    GLib.timeout_add_seconds(7200, (lambda: numDaysInThisYearPassedButton.set_label(str(days_passed_this_year())) or True))
-    GLib.timeout_add_seconds(600, (lambda: numHoursPassedThisYearButton.set_label(str(days_passed_this_year() * 24)) or True))
-    GLib.timeout_add_seconds(300, (lambda: numMinutesPassedThisYearButton.set_label(str(days_passed_this_year() * 24 * 60)) or True))
+    GLib.timeout_add_seconds(7200, (lambda: numDaysInThisYearPassedButton.set_label(str(days_passed_this_year()) + "d") or True))
+    GLib.timeout_add_seconds(600, (lambda: numHoursPassedThisYearButton.set_label(str(days_passed_this_year() * 24) + "hr") or True))
+    GLib.timeout_add_seconds(300, (lambda: numMinutesPassedThisYearButton.set_label(str(days_passed_this_year() * 24 * 60) + "min") or True))
 
     apply_styles(time_widget, "label {font-size: 60px;}")
     apply_styles(dayDataButton, "button {font-size: 30px;}")
