@@ -11,35 +11,19 @@
 import sys
 import os
 
-from itertools import starmap
-
 import subprocess
-from typing_extensions import Iterable, final
+from typing_extensions import final
 from exceptions import (
     EmacsUnavailableException,
     NotLinuxException,
     NoValueFoundException,
 )
-from habits import HabitManager
 
 import style
 from datetime import datetime as dt
-import calendar
 
 import asyncio
-
-try:
-    import gi
-    from weather import get_weather
-except ModuleNotFoundError:
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    venv_python = os.path.join(script_dir, "venv", "bin", "python")
-
-    if not os.path.exists(venv_python):
-        sys.stderr.write("Virtual environment not found in 'venv' directory.\n")
-        sys.exit(1)
-
-    os.execv(venv_python, [venv_python] + sys.argv)
+import gi
 
 
 # For GTK4 Layer Shell to get linked before libwayland-client we must explicitly load it before importing with gi
@@ -51,13 +35,14 @@ CDLL("libgtk4-layer-shell.so")
 gi.require_version("Gtk", "4.0")
 gi.require_version("Gtk4LayerShell", "1.0")
 
-from gi.repository import GLib, Gdk, Gtk, Pango, Gtk4LayerShell as GtkLayerShell  # noqa: E402
+from gi.repository import GLib, Gdk, Gtk, Gtk4LayerShell as GtkLayerShell  # noqa: E402
 
 
 TIME_PATH = os.path.expanduser("~/.time")
+TASKS_VIS_PATH = os.path.expanduser("~/.dashboard_tasks_visible")
 
 
-def apply_styles(widget: Gtk.Box | Gtk.Widget | Gtk.Label , css: str):
+def apply_styles(widget: Gtk.Box | Gtk.Widget | Gtk.Label, css: str):
     provider = Gtk.CssProvider()
     provider.load_from_data(css.encode())
     context = widget.get_style_context()
@@ -65,7 +50,26 @@ def apply_styles(widget: Gtk.Box | Gtk.Widget | Gtk.Label , css: str):
 
 
 def read_time() -> str:
-    return open(TIME_PATH).read().strip()
+    try:
+        return open(TIME_PATH).read().strip()
+    except FileNotFoundError:
+        return "0"  # Default to 0 if file doesn't exist
+
+
+def read_tasks_visible() -> bool:
+    try:
+        return open(TASKS_VIS_PATH).read().strip() == "1"
+    except FileNotFoundError:
+        return True
+
+
+def write_tasks_visible(visible: bool) -> None:
+    try:
+        with open(TASKS_VIS_PATH, "w") as f:
+            f.write("1" if visible else "0")
+    except Exception:
+        # best-effort persistence; ignore errors
+        pass
 
 
 async def is_running(process_name: str) -> bool:
@@ -111,12 +115,10 @@ def get_default_styling() -> str:
 
 
 async def parse_agenda() -> list[str]:
-    # FIXME: development fix
-    # return "TODO: some tasks and stuf\n 1:20 - 2:20 more stuff".splitlines()
     try:
         agenda = await get_agenda()
     except EmacsUnavailableException as e:
-        print(e)
+        print(f"Error: {e}")
         sys.exit(-1)
 
     agenda = agenda.splitlines()
@@ -131,6 +133,7 @@ async def parse_agenda() -> list[str]:
 
 def VBox(spacing: int = 6, hexpand: bool = False, vexpand: bool = False) -> Gtk.Box:
     return Gtk.Box(
+
         orientation=Gtk.Orientation.VERTICAL,
         spacing=spacing,
         hexpand=hexpand,
@@ -168,20 +171,10 @@ def timeBox() -> Gtk.Box:
     return timeBox
 
 
-def weather_widget() -> Gtk.Box:
-    weather = Gtk.Box()
-    weather_box = VBox(10)
-    apply_styles(weather, "box {%s}" % get_default_styling())
-    weather.append(weather_box)
-    weather_label = Gtk.Label(label=str(asyncio.run(get_weather())) + "°F")
-    weather_box.append(weather_label)
-    apply_styles(weather_label, "label { font-size: 120px; }")
-    return weather
-
 
 def Time() -> Gtk.Box:
     """Returns time widget with time, and day"""
-    timeBox = VBox(20)
+    timeBox = VBox(8)  # More compact spacing
 
     time_widget = Gtk.Label(label=dt.now().strftime("%I:%M %p"))
 
@@ -189,126 +182,170 @@ def Time() -> Gtk.Box:
 
     def read_day_date():
         return dt.now().strftime("%A, %B %d")
-    
-    dayDataButton = Gtk.Label(label=read_day_date())
 
-    def days_passed_this_year(): 
+    dayDataButton = Gtk.Label(label=f"{read_day_date()}")
+
+    def days_passed_this_year():
         today = dt.now()
         year_start = dt(today.year, 1, 1)
         return (today - year_start).days + 1
 
-    numDaysInThisYearPassedButton = Gtk.Label(label=str(days_passed_this_year() ) + " d")
-    numHoursPassedThisYearButton = Gtk.Label(label=str(days_passed_this_year() * 24) + " hr")
-    numMinutesPassedThisYearButton = Gtk.Label(label=str(days_passed_this_year() * 24 * 60) + " min")
+    numDaysInThisYearPassedButton = Gtk.Label(label=f"{days_passed_this_year()} days")
+    numHoursPassedThisYearButton = Gtk.Label(
+        label=f"{days_passed_this_year() * 24} hours"
+    )
+    numMinutesPassedThisYearButton = Gtk.Label(
+        label=f"{days_passed_this_year() * 24 * 60} minutes"
+    )
 
     def update_time():
         return dt.now().strftime("%I:%M %p")
 
     GLib.timeout_add_seconds(60, (lambda: time_widget.set_label(update_time()) or True))
-    GLib.timeout_add_seconds(600, (lambda: dayDataButton.set_label(read_day_date()) or True))
+    GLib.timeout_add_seconds(
+        600, (lambda: dayDataButton.set_label(read_day_date()) or True)
+    )
 
-    GLib.timeout_add_seconds(7200, (lambda: numDaysInThisYearPassedButton.set_label(str(days_passed_this_year()) + "d") or True))
-    GLib.timeout_add_seconds(600, (lambda: numHoursPassedThisYearButton.set_label(str(days_passed_this_year() * 24) + "hr") or True))
-    GLib.timeout_add_seconds(300, (lambda: numMinutesPassedThisYearButton.set_label(str(days_passed_this_year() * 24 * 60) + "min") or True))
+    GLib.timeout_add_seconds(
+        7200,
+        (
+            lambda: numDaysInThisYearPassedButton.set_label(
+                f"{days_passed_this_year()} days"
+            )
+            or True
+        ),
+    )
+    GLib.timeout_add_seconds(
+        600,
+        (
+            lambda: numHoursPassedThisYearButton.set_label(
+                f"{days_passed_this_year() * 24} hours"
+            )
+            or True
+        ),
+    )
+    GLib.timeout_add_seconds(
+        300,
+        (
+            lambda: numMinutesPassedThisYearButton.set_label(
+                f"{days_passed_this_year() * 24 * 60} minutes"
+            )
+            or True
+        ),
+    )
 
-    apply_styles(time_widget, "label {font-size: 60px;}")
-    apply_styles(dayDataButton, "button {font-size: 30px;}")
-    apply_styles(passingOfTimeBox, "box {%s}" % get_default_styling())
+    apply_styles(time_widget, "label {font-size: 100px; font-weight: bold; color: #ffffff; text-shadow: 3px 3px 6px rgba(0,0,0,0.8), 0px 0px 20px rgba(0,0,0,0.5);}")
+    apply_styles(dayDataButton, "label {font-size: 26px; color: #ffb000; font-weight: 500; margin-bottom: 12px; font-family: monospace; text-shadow: 0 0 8px rgba(255,176,0,0.3);}")
 
-    apply_styles(numDaysInThisYearPassedButton, "button {font-size: 30px;}")
-    apply_styles(numHoursPassedThisYearButton, "button {font-size: 30px;}")
-    apply_styles(numMinutesPassedThisYearButton, "button {font-size: 30px;}")
+    apply_styles(numDaysInThisYearPassedButton, "label {font-size: 16px; color: #ffffff; font-weight: 400; margin: 4px 12px; font-family: monospace;}")
+    apply_styles(numHoursPassedThisYearButton, "label {font-size: 16px; color: #ffffff; font-weight: 400; margin: 4px 12px; font-family: monospace;}")
+    apply_styles(numMinutesPassedThisYearButton, "label {font-size: 16px; color: #ffffff; font-weight: 400; margin: 4px 12px; font-family: monospace;}")
+
+    # Add calendar icon to date
+    dayDataButton.set_label(f"{read_day_date()}")
 
     passingOfTimeBox.append(numDaysInThisYearPassedButton)
     passingOfTimeBox.append(numHoursPassedThisYearButton)
     passingOfTimeBox.append(numMinutesPassedThisYearButton)
 
-    timeBox.append(time_widget)
     timeBox.append(dayDataButton)
     timeBox.append(passingOfTimeBox)
 
     return timeBox
 
 
-def Calendar() -> Gtk.Box:
-    calendar_box: Gtk.Box = VBox(vexpand=True)
-    todays_date = dt.now()
-    calendar_str = calendar.month(todays_date.year, todays_date.month).splitlines()
-    calendar_str = list(map(str.split, calendar_str))
-
-    if len(calendar_str[2]) < 7:
-        for i in range(7 - len(calendar_str[2])):
-            calendar_str[2].insert(0 , " ")
-
-    calendar_label = Gtk.Grid(
-        hexpand=False, vexpand=False
-    )
-
-  # Create a Grid to hold the calendar
-    calendar_label.set_column_spacing(5)
-    calendar_label.set_row_spacing(5)
-    calendar_label.set_halign(Gtk.Align.CENTER)
-    calendar_label.set_valign(Gtk.Align.CENTER)
-    calendar_label.set_hexpand(False)
-    calendar_label.set_vexpand(False)
-
-    # Add the days of the month
-    for row, week in enumerate(calendar_str[1:]):
-        for col, day in enumerate(week):
-            label = Gtk.Label(label=str(day))
-            label.set_xalign(0.5)
-            label.set_yalign(0.5)
-            apply_styles(label, "label { font-size: 20px; }")
-
-            if day == str(todays_date.day):
-                apply_styles(
-                    label,
-                    "label { font-weight: bold; background-color: #FFD700; color: black; padding: 2px; border-radius: 4px; }",
-                )
-
-            calendar_label.attach(label, col, row, 1,1)
-
-
-    calendar_box.append(calendar_label)
-
-    apply_styles(calendar_box, "box {%s}" % get_default_styling())
-
-    return calendar_box
-
-
-def Agenda() -> Gtk.Box:
+def Agenda(parent_window: Gtk.ApplicationWindow | None = None) -> Gtk.Box:
     """Returns Agenda Widget"""
-    agenda_box = VBox(20)
-    agenda_ibox = VBox(20)
+    agenda_box = VBox(8)  # More compact spacing
 
-    def update(): 
+    # Create scrollable container for the task list
+    scrolled_window = Gtk.ScrolledWindow()
+    # Allow horizontal scrolling and automatic vertical scrollbars
+    scrolled_window.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+    scrolled_window.set_min_content_height(600)  # Minimum height to force stretching
+    # set a reasonable min width so horizontal scrolling is used instead of wrapping
+    scrolled_window.set_min_content_width(360)
+    scrolled_window.set_propagate_natural_height(True)
+
+    agenda_ibox = VBox(2)  # Very compact spacing for terminal look
+    scrolled_window.set_child(agenda_ibox)
+
+    def update():
         agenda = asyncio.run(parse_agenda())
 
+        # clear existing items
         child = agenda_ibox.get_first_child()
-
-        lines = []
-        while child : 
-            lines.append(child.get_label())
-
-
-        while child : 
+        while child:
             prev = child
             child = child.get_next_sibling()
             agenda_ibox.remove(prev)
-            
-        for i in range(len(agenda)):
-            label = Gtk.Label(label=agenda[i])
+
+        for item in agenda:
+            # Ensure labels don't wrap so long items produce horizontal scrolling
+            label = Gtk.Label(label=f"{item}")
+            try:
+                label.set_wrap(False)
+            except Exception:
+                # older GTK versions may not have set_wrap; ignore
+                pass
+            label.set_halign(Gtk.Align.START)
+
+            apply_styles(
+                label,
+                "label { color: #e0e0e0; font-size: 16px; font-weight: 400; margin: 3px 0; padding: 2px 0; font-family: monospace; }",
+            )
             GLib.idle_add(agenda_ibox.append, label)
 
     update()
-    agenda_box.append(agenda_ibox)
 
-    buttons = HBox() 
-    agenda_box.append(buttons)
+    # Add a header with a toggle to show/hide the task list. Persist state across runs.
+    header = HBox()
+    toggle = Gtk.ToggleButton()
 
-    GLib.timeout_add_seconds(120, (lambda: agenda_ibox.set_label(update()) or True))
+    # initialize from persisted value
+    initial_visible = read_tasks_visible()
+    toggle.set_active(initial_visible)
+    toggle.set_label("Hide Tasks" if initial_visible else "Show Tasks")
 
-    apply_styles(agenda_ibox, "box {%s}" % get_default_styling())
+    # make the toggle less conspicuous (small, flat)
+    apply_styles(
+        toggle,
+        "button { background-color: transparent; color: #bdbdbd; padding: 4px 8px; border-radius: 4px; font-size: 12px; border: none; } button:checked { color: #ffffff; }",
+    )
+
+    # Use a Revealer to animate the task list sliding in/out vertically while preserving width
+    revealer = Gtk.Revealer()
+    try:
+        revealer.set_transition_type(Gtk.RevealerTransitionType.SLIDE_UP)
+    except Exception:
+        # older GTK may have different enums; ignore and use default
+        pass
+    revealer.set_transition_duration(300)
+    # ensure a reserved width so hiding doesn't collapse horizontal space
+    try:
+        revealer.set_min_content_width(360)
+    except Exception:
+        pass
+
+    # put the scrolled window inside the revealer
+    revealer.set_child(scrolled_window)
+    revealer.set_reveal_child(initial_visible)
+
+    def on_toggle(button: Gtk.ToggleButton) -> None:
+        active = button.get_active()
+        button.set_label("Hide Tasks" if active else "Show Tasks")
+        write_tasks_visible(active)
+        # animate reveal/hide
+        revealer.set_reveal_child(active)
+
+    toggle.connect("toggled", on_toggle)
+    header.append(toggle)
+
+    # Append header and the revealer that contains the scrollable task list
+    agenda_box.append(header)
+    agenda_box.append(revealer)
+
+    GLib.timeout_add_seconds(30, (lambda: update() or True))
 
     return agenda_box
 
@@ -322,6 +359,7 @@ class Dashboard(Gtk.ApplicationWindow):
             show_menubar=False,
             child=None,
             fullscreened=False,
+            default_width=400,
             default_height=500,
             destroy_with_parent=True,
             hide_on_close=False,
@@ -330,29 +368,25 @@ class Dashboard(Gtk.ApplicationWindow):
         )
 
         self.main_box = Gtk.Box(
-            orientation=Gtk.Orientation.HORIZONTAL, spacing=20, homogeneous=False
+            orientation=Gtk.Orientation.VERTICAL, spacing=12, homogeneous=False
         )
+
+        # Set fixed width to prevent resizing
+        self.set_size_request(400, 100)
 
         self.set_child(self.main_box)
 
-        self.weatherBox = VBox(20)
-        self.weather = weather_widget()
-        self.weatherBox.append(Time())
-        self.weatherBox.append(self.weather)
-        self.weatherBox.append(Calendar())
-        self.main_box.append(self.weatherBox)
+        # Make the window background transparent with terminal-like shadow
+        apply_styles(self, "window { background: transparent; box-shadow: 0 0 0 1px #333, 0 6px 24px rgba(0,0,0,0.8), inset 0 1px 0 rgba(255,255,255,0.05); }")
 
-        self.calendarDiv = VBox(20, hexpand=True, vexpand=True)
-        self.calendarBox = HBox(20, hexpand=True, vexpand=False)
-        self.calendarBox.set_halign(Gtk.Align.START)
-        self.calendarDiv.append(self.calendarBox)
-        self.main_box.append(self.calendarDiv)
+        # Single unified section containing both time and agenda
+        self.unified_section = VBox(12)
+        self.unified_section.append(Time())
+        self.unified_section.append(Agenda(self))
+        self.main_box.append(self.unified_section)
 
-        self.agenda_box = VBox(20)
-        self.agenda_box.append(Agenda())
-        self.main_box.append(self.agenda_box)
-
-        apply_styles(self.main_box, "box { bg: #282828; }")
+        apply_styles(self.main_box, "box { background: transparent; padding: 8px; }")
+        apply_styles(self.unified_section, "box {background: rgba(0,0,0,0.85); padding: 14px; border-radius: 6px; margin: 2px; box-shadow: 0 3px 12px rgba(0,0,0,0.6); backdrop-filter: blur(6px); border: 1px solid #444;}")
 
 
 def on_activate(app: Gtk.Application):
@@ -361,8 +395,8 @@ def on_activate(app: Gtk.Application):
 
     GtkLayerShell.init_for_window(win)
     GtkLayerShell.set_layer(win, GtkLayerShell.Layer.BOTTOM)
-    GtkLayerShell.set_margin(win, GtkLayerShell.Edge.BOTTOM, 20)
-    GtkLayerShell.set_margin(win, GtkLayerShell.Edge.TOP, 20)
+    GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.TOP, True)
+    GtkLayerShell.set_anchor(win, GtkLayerShell.Edge.RIGHT, True)
 
     win.present()
 
